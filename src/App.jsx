@@ -1,10 +1,19 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const formatCurrency = (value) => {
   if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(2)}K`;
-  return `$${value.toFixed(2)}`;
+  if (value >= 0.01) return `$${value.toFixed(2)}`;
+  if (value >= 0.0001) return `$${value.toFixed(6)}`;
+  return `$${value.toFixed(10)}`;
+};
+
+const formatPrice = (value) => {
+  if (value >= 1) return `$${value.toFixed(2)}`;
+  if (value >= 0.01) return `$${value.toFixed(4)}`;
+  if (value >= 0.0001) return `$${value.toFixed(6)}`;
+  return `$${value.toFixed(10)}`;
 };
 
 const formatMultiplier = (value) => {
@@ -12,20 +21,19 @@ const formatMultiplier = (value) => {
   return value.toFixed(1);
 };
 
-const GoatIcon = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M5 3L3 7" />
-    <path d="M19 3L21 7" />
-    <ellipse cx="12" cy="13" rx="8" ry="8" />
-    <circle cx="9" cy="11" r="1.2" fill="currentColor" stroke="none" />
-    <circle cx="15" cy="11" r="1.2" fill="currentColor" stroke="none" />
-    <path d="M10 15.5Q12 17.5 14 15.5" />
-    <path d="M8 8Q6 5 5 6" />
-    <path d="M16 8Q18 5 19 6" />
-  </svg>
-);
+const chainLabels = {
+  solana: "SOL",
+  ethereum: "ETH",
+  bsc: "BSC",
+  arbitrum: "ARB",
+  base: "BASE",
+  polygon: "MATIC",
+  avalanche: "AVAX",
+  optimism: "OP",
+  fantom: "FTM",
+};
 
-const NumberInput = ({ label, value, onChange, prefix = "$", suffix = "", placeholder = "0" }) => {
+const NumberInput = ({ label, value, onChange, prefix = "$", suffix = "", placeholder = "0", disabled = false }) => {
   const [displayValue, setDisplayValue] = useState(value ? value.toString() : "");
   const inputRef = useRef(null);
 
@@ -58,15 +66,16 @@ const NumberInput = ({ label, value, onChange, prefix = "$", suffix = "", placeh
       <div style={{
         display: "flex",
         alignItems: "center",
-        background: "#1A1A1A",
+        background: disabled ? "#141414" : "#1A1A1A",
         border: "1px solid #2A2A2A",
         borderRadius: "10px",
         padding: "0 16px",
         height: "52px",
         transition: "border-color 0.2s",
+        opacity: disabled ? 0.6 : 1,
       }}
-        onMouseEnter={e => e.currentTarget.style.borderColor = "#F97316"}
-        onMouseLeave={e => { if (document.activeElement !== inputRef.current) e.currentTarget.style.borderColor = "#2A2A2A" }}
+        onMouseEnter={e => { if (!disabled) e.currentTarget.style.borderColor = "#F97316" }}
+        onMouseLeave={e => { if (!disabled && document.activeElement !== inputRef.current) e.currentTarget.style.borderColor = "#2A2A2A" }}
       >
         {prefix && <span style={{ color: "#666", fontFamily: "'JetBrains Mono', monospace", fontSize: "15px", marginRight: "4px" }}>{prefix}</span>}
         <input
@@ -76,6 +85,7 @@ const NumberInput = ({ label, value, onChange, prefix = "$", suffix = "", placeh
           value={displayValue}
           onChange={handleChange}
           placeholder={placeholder}
+          disabled={disabled}
           style={{
             flex: 1,
             background: "transparent",
@@ -219,18 +229,128 @@ const TakeProfitRow = ({ pct, entry, positionSize }) => {
   );
 };
 
-export default function CryptoGoatsCalculator() {
+const ComparableRow = ({ name, mc, positionSize, entryMC }) => {
+  const multiplier = entryMC > 0 ? mc / entryMC : 0;
+  const posValue = positionSize * multiplier;
+  const profit = posValue - positionSize;
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr",
+      gap: "8px",
+      padding: "10px 0",
+      borderBottom: "1px solid #1A1A1A",
+      alignItems: "center",
+      fontSize: "13px",
+      fontFamily: "'JetBrains Mono', monospace",
+    }}>
+      <div>
+        <span style={{ color: "#F5F5F5", fontWeight: "500" }}>{name}</span>
+        <span style={{ color: "#555", fontSize: "11px", marginLeft: "6px" }}>{formatCurrency(mc)}</span>
+      </div>
+      <span style={{ color: "#F5F5F5", fontWeight: "500", textAlign: "center" }}>{formatCurrency(posValue)}</span>
+      <span style={{ color: "#22C55E", fontWeight: "500", textAlign: "right" }}>
+        {formatMultiplier(multiplier)}x
+      </span>
+    </div>
+  );
+};
+
+const PulsingDot = () => (
+  <span style={{
+    display: "inline-block",
+    width: "8px",
+    height: "8px",
+    borderRadius: "50%",
+    background: "#22C55E",
+    marginRight: "8px",
+    animation: "pulse 1.5s ease-in-out infinite",
+  }} />
+);
+
+export default function ProfitPal() {
   const [positionSize, setPositionSize] = useState(1000);
   const [entryMC, setEntryMC] = useState(100000);
   const [targetMode, setTargetMode] = useState("mc");
   const [targetMC, setTargetMC] = useState(500000);
   const [targetPct, setTargetPct] = useState(500);
   const [showTable, setShowTable] = useState(false);
+  const [showComparables, setShowComparables] = useState(false);
   const [animate, setAnimate] = useState(false);
+
+  // CA lookup state
+  const [caInput, setCaInput] = useState("");
+  const [tokenData, setTokenData] = useState(null);
+  const [caLoading, setCaLoading] = useState(false);
+  const [caError, setCaError] = useState("");
+  const debounceRef = useRef(null);
 
   useEffect(() => {
     setAnimate(true);
   }, []);
+
+  const fetchToken = useCallback(async (ca) => {
+    if (!ca || ca.length < 20) {
+      setTokenData(null);
+      setCaError("");
+      return;
+    }
+
+    setCaLoading(true);
+    setCaError("");
+
+    try {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ca}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+
+      if (!data.pairs || data.pairs.length === 0) {
+        setCaError("Token not found. Check the contract address.");
+        setTokenData(null);
+        setCaLoading(false);
+        return;
+      }
+
+      // Sort by liquidity, pick the best pair
+      const sorted = data.pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+      const best = sorted[0];
+
+      const token = {
+        name: best.baseToken?.name || "Unknown",
+        symbol: best.baseToken?.symbol || "???",
+        price: parseFloat(best.priceUsd) || 0,
+        marketCap: best.marketCap || best.fdv || 0,
+        liquidity: best.liquidity?.usd || 0,
+        chain: best.chainId || "unknown",
+        volume24h: best.volume?.h24 || 0,
+        priceChange24h: best.priceChange?.h24 || 0,
+        url: best.url || "",
+      };
+
+      setTokenData(token);
+      if (token.marketCap > 0) setEntryMC(token.marketCap);
+      setCaError("");
+    } catch (err) {
+      setCaError("Couldn't fetch token data. Try again.");
+      setTokenData(null);
+    }
+
+    setCaLoading(false);
+  }, []);
+
+  const handleCaChange = (e) => {
+    const val = e.target.value.trim();
+    setCaInput(val);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchToken(val), 600);
+  };
+
+  const clearToken = () => {
+    setCaInput("");
+    setTokenData(null);
+    setCaError("");
+  };
 
   const multiplier = targetMode === "mc"
     ? (entryMC > 0 ? targetMC / entryMC : 0)
@@ -259,6 +379,19 @@ export default function CryptoGoatsCalculator() {
   ];
 
   const tpLevels = [100, 200, 500, 1000, 2500, 5000, 10000];
+
+  const comparables = [
+    { name: "PEPE peak", mc: 7_000_000_000 },
+    { name: "WIF peak", mc: 4_500_000_000 },
+    { name: "BONK peak", mc: 2_000_000_000 },
+    { name: "FLOKI", mc: 1_500_000_000 },
+    { name: "MOG peak", mc: 800_000_000 },
+    { name: "BRETT peak", mc: 500_000_000 },
+    { name: "SPX6900", mc: 100_000_000 },
+    { name: "Mid-tier", mc: 50_000_000 },
+    { name: "Breakout", mc: 10_000_000 },
+    { name: "Early gem", mc: 1_000_000 },
+  ];
 
   return (
     <div style={{
@@ -313,6 +446,194 @@ export default function CryptoGoatsCalculator() {
           }}>Know your numbers before you ape.</p>
         </div>
 
+        {/* CA Lookup */}
+        <div style={{ marginBottom: "20px" }}>
+          <label style={{
+            display: "block",
+            fontSize: "11px",
+            fontWeight: "600",
+            letterSpacing: "1.5px",
+            textTransform: "uppercase",
+            color: "#F97316",
+            marginBottom: "8px",
+            fontFamily: "'JetBrains Mono', monospace"
+          }}>Paste Contract Address</label>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            background: "#1A1A1A",
+            border: `1px solid ${caError ? "#EF4444" : tokenData ? "#22C55E" : "#2A2A2A"}`,
+            borderRadius: "10px",
+            padding: "0 12px",
+            height: "52px",
+            transition: "border-color 0.2s",
+            gap: "8px",
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              value={caInput}
+              onChange={handleCaChange}
+              placeholder="0x... or token CA"
+              style={{
+                flex: 1,
+                background: "transparent",
+                border: "none",
+                outline: "none",
+                color: "#F5F5F5",
+                fontSize: "14px",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontWeight: "400",
+              }}
+            />
+            {caLoading && (
+              <div style={{
+                width: "18px",
+                height: "18px",
+                border: "2px solid #333",
+                borderTopColor: "#F97316",
+                borderRadius: "50%",
+                animation: "spin 0.6s linear infinite",
+              }} />
+            )}
+            {tokenData && !caLoading && (
+              <button onClick={clearToken} style={{
+                background: "none",
+                border: "none",
+                color: "#666",
+                cursor: "pointer",
+                fontSize: "18px",
+                padding: "0 4px",
+                lineHeight: 1,
+              }}>×</button>
+            )}
+          </div>
+          {caError && (
+            <p style={{
+              fontSize: "11px",
+              color: "#EF4444",
+              fontFamily: "'JetBrains Mono', monospace",
+              marginTop: "6px",
+              marginBottom: 0,
+            }}>{caError}</p>
+          )}
+        </div>
+
+        {/* Token Info Card */}
+        {tokenData && (
+          <div style={{
+            background: "linear-gradient(135deg, rgba(249,115,22,0.08) 0%, rgba(34,197,94,0.04) 100%)",
+            border: "1px solid rgba(249,115,22,0.2)",
+            borderRadius: "12px",
+            padding: "16px",
+            marginBottom: "20px",
+            animation: "fadeSlide 0.3s ease",
+          }}>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: "12px",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div>
+                  <span style={{
+                    fontSize: "16px",
+                    fontWeight: "700",
+                    color: "#F5F5F5",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}>{tokenData.symbol}</span>
+                  <span style={{
+                    fontSize: "12px",
+                    color: "#777",
+                    marginLeft: "8px",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}>{tokenData.name}</span>
+                </div>
+              </div>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}>
+                <PulsingDot />
+                <span style={{
+                  fontSize: "11px",
+                  fontWeight: "600",
+                  color: "#22C55E",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                }}>LIVE</span>
+              </div>
+            </div>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: "12px",
+            }}>
+              <div>
+                <div style={{ fontSize: "10px", color: "#666", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>Price</div>
+                <div style={{ fontSize: "14px", fontWeight: "600", color: "#F5F5F5", fontFamily: "'JetBrains Mono', monospace" }}>{formatPrice(tokenData.price)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "10px", color: "#666", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>Market Cap</div>
+                <div style={{ fontSize: "14px", fontWeight: "600", color: "#F5F5F5", fontFamily: "'JetBrains Mono', monospace" }}>{formatCurrency(tokenData.marketCap)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "10px", color: "#666", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>Chain</div>
+                <div style={{ fontSize: "14px", fontWeight: "600", color: "#F5F5F5", fontFamily: "'JetBrains Mono', monospace" }}>{chainLabels[tokenData.chain] || tokenData.chain}</div>
+              </div>
+            </div>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "12px",
+              marginTop: "12px",
+              paddingTop: "12px",
+              borderTop: "1px solid rgba(255,255,255,0.05)",
+            }}>
+              <div>
+                <div style={{ fontSize: "10px", color: "#666", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>Liquidity</div>
+                <div style={{ fontSize: "13px", fontWeight: "500", color: "#999", fontFamily: "'JetBrains Mono', monospace" }}>{formatCurrency(tokenData.liquidity)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "10px", color: "#666", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>24h Change</div>
+                <div style={{
+                  fontSize: "13px",
+                  fontWeight: "500",
+                  color: tokenData.priceChange24h >= 0 ? "#22C55E" : "#EF4444",
+                  fontFamily: "'JetBrains Mono', monospace"
+                }}>{tokenData.priceChange24h >= 0 ? "+" : ""}{tokenData.priceChange24h.toFixed(2)}%</div>
+              </div>
+            </div>
+
+            {tokenData.url && (
+              <a
+                href={tokenData.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "block",
+                  marginTop: "12px",
+                  fontSize: "11px",
+                  color: "#F97316",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  textDecoration: "none",
+                  opacity: 0.7,
+                }}
+              >
+                View on DexScreener →
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Position Size */}
         <NumberInput
           label="Position Size"
@@ -323,7 +644,7 @@ export default function CryptoGoatsCalculator() {
 
         {/* Entry Market Cap */}
         <NumberInput
-          label="Entry Market Cap"
+          label={tokenData ? `Entry Market Cap (live from ${tokenData.symbol})` : "Entry Market Cap"}
           value={entryMC}
           onChange={setEntryMC}
           placeholder="100000"
@@ -426,6 +747,89 @@ export default function CryptoGoatsCalculator() {
             />
           )}
         </div>
+
+        {/* Comparables Toggle */}
+        <button
+          onClick={() => setShowComparables(!showComparables)}
+          style={{
+            width: "100%",
+            padding: "14px",
+            borderRadius: "10px",
+            border: "1px solid #2A2A2A",
+            background: "transparent",
+            color: "#999",
+            fontSize: "13px",
+            fontFamily: "'JetBrains Mono', monospace",
+            fontWeight: "500",
+            cursor: "pointer",
+            transition: "all 0.2s",
+            marginTop: "8px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = "#F97316";
+            e.currentTarget.style.color = "#F97316";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = "#2A2A2A";
+            e.currentTarget.style.color = "#999";
+          }}
+        >
+          <span>{showComparables ? "Hide" : "Show"} Comparable Tokens</span>
+          <span style={{ transform: showComparables ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }}>▼</span>
+        </button>
+
+        {/* Comparables Table */}
+        {showComparables && (
+          <div style={{
+            marginTop: "16px",
+            background: "#111",
+            borderRadius: "12px",
+            border: "1px solid #1A1A1A",
+            padding: "16px",
+            animation: "fadeSlide 0.3s ease",
+          }}>
+            <p style={{
+              fontSize: "11px",
+              color: "#555",
+              fontFamily: "'JetBrains Mono', monospace",
+              marginTop: 0,
+              marginBottom: "12px",
+            }}>Your bag if this token hit the same MC as...</p>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: "8px",
+              padding: "0 0 10px",
+              borderBottom: "1px solid #2A2A2A",
+              fontSize: "10px",
+              fontWeight: "600",
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              color: "#555",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>
+              <span>Token</span>
+              <span style={{ textAlign: "center" }}>Value</span>
+              <span style={{ textAlign: "right" }}>Multiple</span>
+            </div>
+            {comparables
+              .filter(c => c.mc > entryMC)
+              .map(c => (
+                <ComparableRow
+                  key={c.name}
+                  name={c.name}
+                  mc={c.mc}
+                  positionSize={positionSize}
+                  entryMC={entryMC}
+                />
+              ))
+            }
+          </div>
+        )}
 
         {/* TP Table Toggle */}
         <button
@@ -551,6 +955,13 @@ export default function CryptoGoatsCalculator() {
           @keyframes fadeSlide {
             from { opacity: 0; transform: translateY(-8px); }
             to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
           }
           input::placeholder { color: #333; }
           * { box-sizing: border-box; }
