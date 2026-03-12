@@ -277,6 +277,239 @@ export default function ProfitPal() {
   const [showTable, setShowTable] = useState(false);
   const [showComparables, setShowComparables] = useState(false);
   const [animate, setAnimate] = useState(false);
+  const [shareStatus, setShareStatus] = useState("");
+
+  const generateShareImage = useCallback(async () => {
+    const canvas = document.createElement("canvas");
+    const w = 1080;
+    const h = 1080;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+
+    // Background
+    ctx.fillStyle = "#0D0D0D";
+    ctx.fillRect(0, 0, w, h);
+
+    // Subtle gradient overlay
+    const grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, "rgba(249,115,22,0.06)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Border accent
+    ctx.strokeStyle = "#F97316";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(40, 40, w - 80, h - 80);
+
+    // Corner accents
+    const cornerLen = 30;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#F97316";
+    [[44, 44, 1, 1], [w - 44, 44, -1, 1], [44, h - 44, 1, -1], [w - 44, h - 44, -1, -1]].forEach(([x, y, dx, dy]) => {
+      ctx.beginPath();
+      ctx.moveTo(x + cornerLen * dx, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y + cornerLen * dy);
+      ctx.stroke();
+    });
+
+    // Header - Powered by
+    ctx.fillStyle = "#F97316";
+    ctx.font = "600 16px 'Courier New', monospace";
+    ctx.letterSpacing = "4px";
+    ctx.textAlign = "center";
+    ctx.fillText("POWERED BY CRYPTO GOATS", w / 2, 110);
+
+    // Title
+    ctx.fillStyle = "#F5F5F5";
+    ctx.font = "bold 42px 'Courier New', monospace";
+    ctx.fillText("POSITION CALCULATOR", w / 2, 165);
+
+    // Divider line
+    ctx.strokeStyle = "#2A2A2A";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(100, 195);
+    ctx.lineTo(w - 100, 195);
+    ctx.stroke();
+
+    // Token info if available
+    let yOffset = 240;
+    if (tokenData) {
+      ctx.fillStyle = "#F97316";
+      ctx.font = "bold 28px 'Courier New', monospace";
+      ctx.fillText(`${tokenData.symbol}`, w / 2, yOffset);
+      ctx.fillStyle = "#777";
+      ctx.font = "500 16px 'Courier New', monospace";
+      ctx.fillText(`${tokenData.name} · ${chainLabels[tokenData.chain] || tokenData.chain}`, w / 2, yOffset + 30);
+      yOffset += 70;
+    }
+
+    // Entry details
+    ctx.fillStyle = "#666";
+    ctx.font = "600 14px 'Courier New', monospace";
+    ctx.fillText("ENTRY", w / 2 - 200, yOffset);
+    ctx.fillText("POSITION", w / 2, yOffset);
+    ctx.fillText("TARGET", w / 2 + 200, yOffset);
+
+    ctx.fillStyle = "#F5F5F5";
+    ctx.font = "bold 22px 'Courier New', monospace";
+    ctx.fillText(formatCurrency(entryMC) + " MC", w / 2 - 200, yOffset + 32);
+    ctx.fillText(formatCurrency(positionSize), w / 2, yOffset + 32);
+    const effTarget = targetMode === "mc" ? targetMC : entryMC * (1 + targetPct / 100);
+    ctx.fillText(formatCurrency(effTarget) + " MC", w / 2 + 200, yOffset + 32);
+
+    yOffset += 90;
+
+    // Main result - big number
+    const mult = targetMode === "mc" ? (entryMC > 0 ? targetMC / entryMC : 0) : (1 + targetPct / 100);
+    const fv = positionSize * mult;
+    const pr = fv - positionSize;
+    const pg = (mult - 1) * 100;
+
+    // Result background box
+    ctx.fillStyle = "rgba(249,115,22,0.08)";
+    ctx.beginPath();
+    ctx.roundRect(80, yOffset, w - 160, 180, 16);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(249,115,22,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(80, yOffset, w - 160, 180, 16);
+    ctx.stroke();
+
+    ctx.fillStyle = "#777";
+    ctx.font = "600 14px 'Courier New', monospace";
+    ctx.fillText("POSITION VALUE", w / 2, yOffset + 40);
+
+    ctx.fillStyle = "#F97316";
+    ctx.font = "bold 64px 'Courier New', monospace";
+    ctx.fillText(formatCurrency(fv), w / 2, yOffset + 110);
+
+    ctx.fillStyle = "#999";
+    ctx.font = "500 20px 'Courier New', monospace";
+    ctx.fillText(`${formatMultiplier(mult)}x from entry`, w / 2, yOffset + 150);
+
+    yOffset += 220;
+
+    // Profit and % gain boxes
+    const boxW = (w - 200) / 2;
+
+    // Profit box
+    ctx.fillStyle = "#1A1A1A";
+    ctx.beginPath();
+    ctx.roundRect(80, yOffset, boxW, 120, 12);
+    ctx.fill();
+    ctx.strokeStyle = "#2A2A2A";
+    ctx.beginPath();
+    ctx.roundRect(80, yOffset, boxW, 120, 12);
+    ctx.stroke();
+
+    ctx.fillStyle = "#777";
+    ctx.font = "600 13px 'Courier New', monospace";
+    ctx.fillText("PROFIT", 80 + boxW / 2, yOffset + 38);
+    ctx.fillStyle = "#22C55E";
+    ctx.font = "bold 30px 'Courier New', monospace";
+    ctx.fillText(pr >= 0 ? `+${formatCurrency(pr)}` : `-${formatCurrency(Math.abs(pr))}`, 80 + boxW / 2, yOffset + 82);
+
+    // % Gain box
+    ctx.fillStyle = "#1A1A1A";
+    ctx.beginPath();
+    ctx.roundRect(w / 2 + 20, yOffset, boxW, 120, 12);
+    ctx.fill();
+    ctx.strokeStyle = "#2A2A2A";
+    ctx.beginPath();
+    ctx.roundRect(w / 2 + 20, yOffset, boxW, 120, 12);
+    ctx.stroke();
+
+    ctx.fillStyle = "#777";
+    ctx.font = "600 13px 'Courier New', monospace";
+    ctx.fillText("% GAIN", w / 2 + 20 + boxW / 2, yOffset + 38);
+    ctx.fillStyle = "#F5F5F5";
+    ctx.font = "bold 30px 'Courier New', monospace";
+    ctx.fillText(`${pg >= 0 ? "+" : ""}${pg.toFixed(0)}%`, w / 2 + 20 + boxW / 2, yOffset + 82);
+
+    yOffset += 160;
+
+    // Divider
+    ctx.strokeStyle = "#1A1A1A";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(100, yOffset);
+    ctx.lineTo(w - 100, yOffset);
+    ctx.stroke();
+
+    yOffset += 40;
+
+    // Footer branding
+    ctx.fillStyle = "#F97316";
+    ctx.font = "bold 18px 'Courier New', monospace";
+    ctx.fillText("profitpal.app", w / 2, h - 100);
+
+    ctx.fillStyle = "#444";
+    ctx.font = "500 13px 'Courier New', monospace";
+    ctx.fillText("For educational purposes only. Not financial advice.", w / 2, h - 70);
+
+    return canvas;
+  }, [positionSize, entryMC, targetMode, targetMC, targetPct, tokenData]);
+
+  const handleShare = useCallback(async () => {
+    setShareStatus("generating");
+    try {
+      const canvas = await generateShareImage();
+
+      // Try native share (mobile)
+      if (navigator.share && navigator.canShare) {
+        canvas.toBlob(async (blob) => {
+          const file = new File([blob], "profitpal-position.png", { type: "image/png" });
+          if (navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({
+                title: "My Position - ProfitPal",
+                text: "Check out my position calculation on ProfitPal",
+                files: [file],
+              });
+              setShareStatus("shared");
+            } catch (e) {
+              if (e.name !== "AbortError") {
+                downloadImage(canvas);
+                setShareStatus("downloaded");
+              } else {
+                setShareStatus("");
+              }
+            }
+          } else {
+            downloadImage(canvas);
+            setShareStatus("downloaded");
+          }
+        }, "image/png");
+      } else {
+        // Try clipboard
+        try {
+          const blob = await new Promise(res => canvas.toBlob(res, "image/png"));
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          setShareStatus("copied");
+        } catch {
+          downloadImage(canvas);
+          setShareStatus("downloaded");
+        }
+      }
+
+      setTimeout(() => setShareStatus(""), 2500);
+    } catch (err) {
+      console.error("Share error:", err);
+      setShareStatus("");
+    }
+  }, [generateShareImage]);
+
+  const downloadImage = (canvas) => {
+    const link = document.createElement("a");
+    link.download = "profitpal-position.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
 
   // CA lookup state
   const [caInput, setCaInput] = useState("");
@@ -747,6 +980,89 @@ export default function ProfitPal() {
             />
           )}
         </div>
+
+        {/* Share Button */}
+        <button
+          onClick={handleShare}
+          disabled={shareStatus === "generating"}
+          style={{
+            width: "100%",
+            padding: "14px",
+            borderRadius: "10px",
+            border: "1px solid #F97316",
+            background: shareStatus === "copied" || shareStatus === "shared" || shareStatus === "downloaded"
+              ? "rgba(34,197,94,0.15)"
+              : "rgba(249,115,22,0.08)",
+            color: shareStatus === "copied" || shareStatus === "shared" || shareStatus === "downloaded"
+              ? "#22C55E"
+              : "#F97316",
+            fontSize: "13px",
+            fontFamily: "'JetBrains Mono', monospace",
+            fontWeight: "600",
+            cursor: shareStatus === "generating" ? "wait" : "pointer",
+            transition: "all 0.2s",
+            marginTop: "8px",
+            marginBottom: "4px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            letterSpacing: "0.5px",
+            textTransform: "uppercase",
+            borderColor: shareStatus === "copied" || shareStatus === "shared" || shareStatus === "downloaded"
+              ? "#22C55E" : "#F97316",
+          }}
+          onMouseEnter={e => {
+            if (!shareStatus) {
+              e.currentTarget.style.background = "rgba(249,115,22,0.15)";
+            }
+          }}
+          onMouseLeave={e => {
+            if (!shareStatus) {
+              e.currentTarget.style.background = "rgba(249,115,22,0.08)";
+            }
+          }}
+        >
+          {shareStatus === "generating" ? (
+            <>
+              <div style={{
+                width: "14px",
+                height: "14px",
+                border: "2px solid rgba(249,115,22,0.3)",
+                borderTopColor: "#F97316",
+                borderRadius: "50%",
+                animation: "spin 0.6s linear infinite",
+              }} />
+              Generating...
+            </>
+          ) : shareStatus === "copied" ? (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              Copied to Clipboard
+            </>
+          ) : shareStatus === "shared" ? (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              Shared
+            </>
+          ) : shareStatus === "downloaded" ? (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              Image Saved
+            </>
+          ) : (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              Share Position
+            </>
+          )}
+        </button>
 
         {/* Comparables Toggle */}
         <button
