@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:/Users/TheIs/Desktop/bag-calculator-v2/bag-calculator-v2\" && npm install)",
+      "Bash(cd \"C:/Users/TheIs/Desktop/bag-calculator-v2/bag-calculator-v2\" && npm run dev)"
+    ]
+  }
+}
