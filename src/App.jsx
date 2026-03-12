@@ -279,6 +279,13 @@ export default function ProfitPal() {
   const [animate, setAnimate] = useState(false);
   const [shareStatus, setShareStatus] = useState("");
 
+  // CA lookup state
+  const [caInput, setCaInput] = useState("");
+  const [tokenData, setTokenData] = useState(null);
+  const [caLoading, setCaLoading] = useState(false);
+  const [caError, setCaError] = useState("");
+  const debounceRef = useRef(null);
+
   const generateShareImage = useCallback(async () => {
     const canvas = document.createElement("canvas");
     const w = 1080;
@@ -510,13 +517,6 @@ export default function ProfitPal() {
     link.href = canvas.toDataURL("image/png");
     link.click();
   };
-
-  // CA lookup state
-  const [caInput, setCaInput] = useState("");
-  const [tokenData, setTokenData] = useState(null);
-  const [caLoading, setCaLoading] = useState(false);
-  const [caError, setCaError] = useState("");
-  const debounceRef = useRef(null);
 
   useEffect(() => {
     setAnimate(true);
